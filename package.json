@@ -1,0 +1,50 @@
+{
+  "name": "@hyuga/tokenlint",
+  "version": "0.1.0",
+  "description": "Count hardcoded colors, measure design-token coverage, and gate PRs — a zero-config, zero-dependency GitHub Action + CLI. Understands CSS custom properties and Tailwind arbitrary values.",
+  "type": "module",
+  "bin": {
+    "tokenlint": "src/cli.mjs"
+  },
+  "exports": {
+    ".": "./src/scan.mjs",
+    "./report": "./src/report.mjs"
+  },
+  "files": [
+    "src",
+    "action.yml"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node --test",
+    "demo": "node src/cli.mjs examples",
+    "report": "node src/cli.mjs examples --report"
+  },
+  "keywords": [
+    "design-tokens",
+    "design-system",
+    "css",
+    "tailwind",
+    "hardcoded-colors",
+    "linter",
+    "github-action",
+    "ci",
+    "coverage",
+    "zero-config"
+  ],
+  "license": "MIT",
+  "author": "hyuga611",
+  "homepage": "https://github.com/hyuga611/tokenlint#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hyuga611/tokenlint.git"
+  },
+  "bugs": {
+    "url": "https://github.com/hyuga611/tokenlint/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

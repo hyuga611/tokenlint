@@ -1,0 +1,32 @@
+name: 'tokenlint — color token coverage'
+description: 'Count hardcoded colors and fail the PR when they exceed a budget. Zero-config, zero-dependency.'
+author: 'hyuga611'
+branding:
+  icon: 'droplet'
+  color: 'purple'
+inputs:
+  paths:
+    description: 'Paths to scan (space-separated).'
+    required: false
+    default: '.'
+  max:
+    description: 'Fail the run if hardcoded colors exceed this number. Empty = report only.'
+    required: false
+    default: ''
+  report:
+    description: 'Write an HTML scorecard to this path (optional).'
+    required: false
+    default: ''
+runs:
+  using: 'composite'
+  steps:
+    - shell: bash
+      env:
+        TL_PATHS: ${{ inputs.paths }}
+        TL_MAX: ${{ inputs.max }}
+        TL_REPORT: ${{ inputs.report }}
+      run: |
+        args="$TL_PATHS"
+        [ -n "$TL_MAX" ] && args="$args --max $TL_MAX"
+        [ -n "$TL_REPORT" ] && args="$args --report=$TL_REPORT"
+        node "$GITHUB_ACTION_PATH/src/cli.mjs" $args
