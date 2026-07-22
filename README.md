@@ -32,6 +32,8 @@ npx @hyuga/tokenlint --report   # write tokenlint-report.html (the shareable sco
 
 ### As a GitHub Action (the PR gate)
 
+Gate on **new debt only** — don't punish the whole team for the colors that were already there, just fail when a PR *adds* hardcoded colors:
+
 ```yaml
 # .github/workflows/tokenlint.yml
 name: tokenlint
@@ -41,11 +43,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0        # tokenlint diffs against the PR base
       - uses: hyuga611/tokenlint@v0
         with:
           paths: src
-          max: 0        # fail the PR if any hardcoded color is introduced
+          max-new: 0            # fail only if this PR ADDS hardcoded colors
 ```
+
+`--since`/`base` defaults to the PR base commit, so **"new in this PR"** works with zero extra config. Prefer `max-new` (net new) over `max` (total) unless you're at zero and want to stay there.
 
 ### As a README badge
 
@@ -75,17 +81,20 @@ tokenlint is dependency-zero and regex-based on purpose. Not yet handled (planne
 
 - named colors (`red`, `white`) are **not** flagged;
 - SCSS `$variables` are not treated as tokens (only CSS custom properties);
-- Tailwind **semantic** classes (`text-primary`) are not yet counted as tokenized — only arbitrary values are flagged;
-- the CI gate uses `--max <total>`. **PR-delta** ("new hardcoded colors *in this PR*") lands next.
+- Tailwind **semantic** classes (`text-primary`) are not yet counted as tokenized — only arbitrary values are flagged.
+
+The **"new in this PR"** delta (`--since` / `--max-new`) uses the **net count change** (base → head), like size-limit's byte delta: robust and hard to game.
 
 ## Options
 
 ```
 tokenlint [paths...] [options]
 
-  --max <n>          fail (exit 1) if hardcoded colors > n   (CI gate)
+  --max <n>          fail (exit 1) if TOTAL hardcoded colors > n
+  --since <ref>      diff against a git ref (e.g. the PR base) for "new this PR"
+  --max-new <n>      fail (exit 1) if this PR ADDS more than n hardcoded colors
   --report[=file]    write an HTML scorecard (default: tokenlint-report.html)
-  --badge[=kind]     shields.io endpoint JSON (kind: coverage | hardcoded)
+  --badge[=kind]     shields.io endpoint JSON (kind: coverage | hardcoded | new)
   --format <fmt>     text (default) | json
   --no-color         disable ANSI color
   -h, --help / -v, --version

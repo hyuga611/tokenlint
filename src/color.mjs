@@ -50,18 +50,30 @@ export function parseColor(input) {
   if ((m = /^rgba?\(([^)]+)\)$/.exec(s))) {
     const p = m[1].split(/[,\s/]+/).filter(Boolean);
     if (p.length < 3) return null;
-    return { r: channel(p[0]), g: channel(p[1]), b: channel(p[2]) };
+    const r = channel(p[0]), g = channel(p[1]), b = channel(p[2]);
+    if ([r, g, b].some((v) => Number.isNaN(v))) return null; // e.g. rgb(none 0 0), relative-color syntax
+    return { r, g, b };
   }
   if ((m = /^hsla?\(([^)]+)\)$/.exec(s))) {
     const p = m[1].split(/[,\s/]+/).filter(Boolean);
     if (p.length < 3) return null;
-    const h = parseFloat(p[0]);
+    const h = hueToDeg(p[0]);
     const sat = parseFloat(p[1]) / 100;
     const l = parseFloat(p[2]) / 100;
     if ([h, sat, l].some((v) => Number.isNaN(v))) return null;
     return hslToRgb(h, sat, l);
   }
   return null;
+}
+
+// CSS hue may carry an angle unit (deg default). Convert to degrees; hslToRgb normalizes mod 360.
+function hueToDeg(str) {
+  const v = parseFloat(str);
+  if (Number.isNaN(v)) return NaN;
+  if (str.endsWith('grad')) return v * 0.9;        // 400grad = 360deg  (test before 'rad')
+  if (str.endsWith('rad')) return (v * 180) / Math.PI;
+  if (str.endsWith('turn')) return v * 360;
+  return v;                                         // deg or unitless
 }
 
 /** Perceptual "redmean" color distance (compuphase.com/cmetric.htm). Lower = closer. */

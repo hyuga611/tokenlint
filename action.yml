@@ -1,5 +1,5 @@
 name: 'tokenlint — color token coverage'
-description: 'Count hardcoded colors and fail the PR when they exceed a budget. Zero-config, zero-dependency.'
+description: 'Count hardcoded colors and fail the PR when they grow. Zero-config, zero-dependency.'
 author: 'hyuga611'
 branding:
   icon: 'droplet'
@@ -10,9 +10,17 @@ inputs:
     required: false
     default: '.'
   max:
-    description: 'Fail the run if hardcoded colors exceed this number. Empty = report only.'
+    description: 'Fail if TOTAL hardcoded colors exceed this number. Empty = no total gate.'
     required: false
     default: ''
+  max-new:
+    description: 'Fail if this PR ADDS more than this many hardcoded colors. Needs `base` (or PR context) + git history.'
+    required: false
+    default: ''
+  base:
+    description: 'Git ref/sha to diff against for "new this PR". Defaults to the PR base on pull_request.'
+    required: false
+    default: ${{ github.event.pull_request.base.sha }}
   report:
     description: 'Write an HTML scorecard to this path (optional).'
     required: false
@@ -24,9 +32,13 @@ runs:
       env:
         TL_PATHS: ${{ inputs.paths }}
         TL_MAX: ${{ inputs.max }}
+        TL_MAX_NEW: ${{ inputs.max-new }}
+        TL_BASE: ${{ inputs.base }}
         TL_REPORT: ${{ inputs.report }}
       run: |
         args="$TL_PATHS"
-        [ -n "$TL_MAX" ] && args="$args --max $TL_MAX"
-        [ -n "$TL_REPORT" ] && args="$args --report=$TL_REPORT"
+        [ -n "$TL_MAX" ]     && args="$args --max $TL_MAX"
+        [ -n "$TL_MAX_NEW" ] && args="$args --max-new $TL_MAX_NEW"
+        [ -n "$TL_BASE" ]    && args="$args --since $TL_BASE"
+        [ -n "$TL_REPORT" ]  && args="$args --report=$TL_REPORT"
         node "$GITHUB_ACTION_PATH/src/cli.mjs" $args
