@@ -4,6 +4,8 @@
 [![license](https://img.shields.io/npm/l/@hyuga/tokenlint.svg)](./LICENSE)
 [![zero dependencies](https://img.shields.io/badge/dependencies-0-blue.svg)](./package.json)
 
+> Part of a set of zero-dependency CI tools for AI-agent repos — start with **[reflint](https://github.com/hyuga611/reflint)**.
+
 **Count hardcoded colors, measure design-token coverage, and gate PRs.** A zero-config, zero-dependency GitHub Action + CLI that understands both **CSS custom properties** and **Tailwind arbitrary values** (`text-[#3b82f6]`).
 
 > デザイントークンを使わずベタ書きされた色を毎PRで数え、トークン網羅率をスコアカード＋動的バッジにする。設定ファイル不要・依存ゼロ。
@@ -100,13 +102,20 @@ tokenlint [paths...] [options]
   -h, --help / -v, --version
 ```
 
-## Part of the hyuga611 lint family
 
-Zero-dependency CI linters that fail your PR on things that quietly break:
+## Related tools
 
-- [reflint](https://github.com/hyuga611/reflint) — broken references in AGENTS.md / llms.txt / CLAUDE.md
-- [skills-lint](https://github.com/hyuga611/skills-lint) — SKILL.md references & skill collisions
-- [tracklint](https://github.com/hyuga611/tracklint) — broken conversion tracking
-- [carrylint](https://github.com/hyuga611/carrylint) — non-portable, author-environment-baked skills
+Zero-dependency CI linters for repos where AI agents do the work. Each one fails the PR on something that breaks quietly.
+
+| | Catches |
+| --- | --- |
+| [reflint](https://github.com/hyuga611/reflint) | `AGENTS.md` / `llms.txt` / `CLAUDE.md` pointing at commands, scripts, or paths that no longer exist |
+| [skills-lint](https://github.com/hyuga611/skills-lint) | `SKILL.md` broken references + `name`/trigger collisions between skills |
+| [carrylint](https://github.com/hyuga611/carrylint) | Skills with the author's machine or model baked in — absolute paths, undeclared CLIs, unresolved placeholders |
+| [genchi](https://github.com/hyuga611/genchi) | Agents reporting "done" without re-fetching real-world state |
+| [tracklint](https://github.com/hyuga611/tracklint) | Forms and CTAs that quietly stopped being wired for conversion tracking |
+| **tokenlint** ← you are here | Hardcoded colors that bypass your design tokens |
+| [reflint for VS Code](https://github.com/hyuga611/reflint-vscode) | The same reflint checks, inline in the editor as you save |
+| [orogami](https://github.com/hyuga611/orogami) | Not a linter — natural Japanese/CJK line breaking for OGP images (BudouX + font subsetting) |
 
 MIT © [hyuga611](https://github.com/hyuga611)
