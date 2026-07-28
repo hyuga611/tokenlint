@@ -31,7 +31,15 @@ function channel(str) {
   return clamp(Math.round(parseFloat(str)), 0, 255);
 }
 
-/** Parse a CSS color literal (#hex, rgb()/rgba(), hsl()/hsla()) to {r,g,b}, or null. */
+// アルファ値（省略時は 1）。`50%` 表記も受ける。
+function alphaOf(str) {
+  if (str == null) return 1;
+  const s = String(str).trim();
+  const v = s.endsWith('%') ? parseFloat(s) / 100 : parseFloat(s);
+  return Number.isNaN(v) ? 1 : clamp(v, 0, 1);
+}
+
+/** Parse a CSS color literal (#hex, rgb()/rgba(), hsl()/hsla()) to {r,g,b,a}, or null. */
 export function parseColor(input) {
   if (!input) return null;
   const s = String(input).trim().toLowerCase();
@@ -40,10 +48,10 @@ export function parseColor(input) {
     const h = m[1];
     const at = (a, b) => parseInt(h.slice(a, b), 16);
     if (h.length === 3 || h.length === 4) {
-      return { r: at(0, 1) * 17, g: at(1, 2) * 17, b: at(2, 3) * 17 };
+      return { r: at(0, 1) * 17, g: at(1, 2) * 17, b: at(2, 3) * 17, a: h.length === 4 ? (at(3, 4) * 17) / 255 : 1 };
     }
     if (h.length === 6 || h.length === 8) {
-      return { r: at(0, 2), g: at(2, 4), b: at(4, 6) };
+      return { r: at(0, 2), g: at(2, 4), b: at(4, 6), a: h.length === 8 ? at(6, 8) / 255 : 1 };
     }
     return null; // 5 or 7 hex digits: not a valid color
   }
@@ -52,7 +60,7 @@ export function parseColor(input) {
     if (p.length < 3) return null;
     const r = channel(p[0]), g = channel(p[1]), b = channel(p[2]);
     if ([r, g, b].some((v) => Number.isNaN(v))) return null; // e.g. rgb(none 0 0), relative-color syntax
-    return { r, g, b };
+    return { r, g, b, a: alphaOf(p[3]) };
   }
   if ((m = /^hsla?\(([^)]+)\)$/.exec(s))) {
     const p = m[1].split(/[,\s/]+/).filter(Boolean);
@@ -61,7 +69,7 @@ export function parseColor(input) {
     const sat = parseFloat(p[1]) / 100;
     const l = parseFloat(p[2]) / 100;
     if ([h, sat, l].some((v) => Number.isNaN(v))) return null;
-    return hslToRgb(h, sat, l);
+    return { ...hslToRgb(h, sat, l), a: alphaOf(p[3]) };
   }
   return null;
 }

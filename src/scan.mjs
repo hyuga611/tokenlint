@@ -27,7 +27,10 @@ const COLOR_PROPS = new Set([
 
 const HEX = /#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{4}|[0-9a-fA-F]{3})\b/g;
 // Nesting-aware (one level) so hsl(var(--x)) / rgb(a / .2) capture cleanly instead of truncating.
-const FUNC = /\b(?:rgba?|hsla?)\((?:[^()]+|\([^()]*\))*\)/gi;
+// 分岐は「括弧以外の1文字」か「1段だけの括弧組」で重ならず、繰り返しにも上限を置く。
+// `(?:[^()]+|\(...\))*` の形だと、閉じ括弧の無い rgba( があった瞬間に指数爆発する
+// （実データ監査 2026-07: 公開CSS 90KB でスキャンが返らなくなった）。色リテラルは短いので上限で足りる。
+const FUNC = /\b(?:rgba?|hsla?)\((?:[^()]|\([^()]*\)){0,200}\)/gi;
 const VAR = /var\(\s*(--[A-Za-z0-9_-]+)/g;
 // Tailwind arbitrary color: color may appear anywhere in the brackets (shadow-[0_2px_#000]).
 // Lookahead + single greedy [^\]]* keeps it linear (no catastrophic backtracking).
@@ -35,7 +38,7 @@ const TW_ARB = /\b(?:text|bg|border|ring|ring-offset|fill|stroke|from|via|to|dec
 // Arbitrary property form: [color:#fff], [background-color:rgb(...)] — same lookahead shape.
 const TW_PROP = /\[\s*(?:color|background|background-color|border-color|fill|stroke|outline-color|text-decoration-color)\s*:\s*(?=[^\]]*(?:#[0-9a-fA-F]{3,8}|(?:rgba?|hsla?)\([^)\]]*\)))[^\]]*\]/gi;
 // Extract the actual color literal from a matched Tailwind utility (non-global; exec from start).
-const COLOR_LITERAL = /#[0-9a-fA-F]{3,8}|(?:rgba?|hsla?)\((?:[^()]+|\([^()]*\))*\)/i;
+const COLOR_LITERAL = /#[0-9a-fA-F]{3,8}|(?:rgba?|hsla?)\((?:[^()]|\([^()]*\)){0,200}\)/i;
 
 const CSS_EXT = new Set(['css', 'scss', 'sass', 'less']);
 const MARKUP_EXT = new Set(['html', 'htm', 'jsx', 'tsx', 'vue', 'svelte', 'astro', 'mdx']);
@@ -127,12 +130,21 @@ function collectPalette(text, palette) {
   }
 }
 
-function nearestToken(rgb, palette) {
-  if (!rgb || !palette.length) return null;
+// 「そのトークンに置き換えられる」と言える範囲でだけ提案する。
+// 実データ監査（公開リポジトリ 700ファイル・2026-07）で、提案の 47% が半透明の色に対して
+// 不透明トークンを、38% が見た目に別の色を指していた。どちらも置き換えられないので出さない。
+const NEAR_MAX = 40;       // redmean 距離。Δ0=完全一致、Δ40 あたりから肉眼で違う色になる
+const ALPHA_EPS = 0.02;    // 透明度がこれ以上違えば別物（色は同じでも置き換えできない）
+
+function nearestToken(color, palette) {
+  if (!color || !palette.length) return null;
+  const a = color.a ?? 1;
+  if (a === 0) return null; // 完全に透明。どのトークンでも置き換えられない
   let best = null;
   for (const t of palette) {
-    const d = distance(rgb, t.rgb);
-    if (!Number.isFinite(d)) continue;
+    if (Math.abs((t.rgb?.a ?? 1) - a) > ALPHA_EPS) continue;
+    const d = distance(color, t.rgb);
+    if (!Number.isFinite(d) || d > NEAR_MAX) continue;
     if (!best || d < best.distance) best = { name: t.name, value: t.value, distance: Math.round(d) };
   }
   return best;

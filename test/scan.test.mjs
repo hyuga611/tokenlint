@@ -163,9 +163,81 @@ test('diff normalizes color spelling — reformatting is not a new color', () =>
 });
 
 test('color parsing: shorthand hex, rgb, hsl', () => {
-  assert.deepEqual(parseColor('#fff'), { r: 255, g: 255, b: 255 });
-  assert.deepEqual(parseColor('#000000'), { r: 0, g: 0, b: 0 });
-  assert.deepEqual(parseColor('rgb(255, 0, 0)'), { r: 255, g: 0, b: 0 });
+  assert.deepEqual(parseColor('#fff'), { r: 255, g: 255, b: 255, a: 1 });
+  assert.deepEqual(parseColor('#000000'), { r: 0, g: 0, b: 0, a: 1 });
+  assert.deepEqual(parseColor('rgb(255, 0, 0)'), { r: 255, g: 0, b: 0, a: 1 });
   assert.equal(distance({ r: 0, g: 0, b: 0 }, { r: 0, g: 0, b: 0 }), 0);
   assert.equal(parseColor('not-a-color'), null);
+});
+
+// 透明度（実データ監査 2026-07 由来）。v0.1.0 は alpha を捨てていたので、
+// rgba(0,0,0,0) と黒トークンを「完全一致(Δ0)」と報告していた。
+test('color parsing: alpha を保持する（8桁hex / 4桁hex / rgba / hsla / %表記）', () => {
+  assert.equal(parseColor('#00000080').a, 128 / 255);
+  assert.equal(parseColor('#0008').a, 136 / 255);
+  assert.equal(parseColor('rgba(0, 0, 0, 0.5)').a, 0.5);
+  assert.equal(parseColor('rgba(0 0 0 / 50%)').a, 0.5);
+  assert.equal(parseColor('hsla(0, 0%, 0%, 0.25)').a, 0.25);
+  assert.equal(parseColor('rgb(1, 2, 3)').a, 1);
+});
+
+// --- 近傍トークン提案の条件（実データ監査 2026-07・公開CSS 700ファイル 由来） ---
+// v0.1.0 は「置き換えられない色」まで提案していた: 半透明に不透明トークン(47%)、
+// 見た目に別の色(38%)。提案は「そのまま置き換えられる」ものだけに絞る。
+
+const palette = ':root { --ink: #263126; --ink-18: rgba(38, 49, 38, 0.18); --brand: #2563eb; }\n';
+
+function nearestOf(css) {
+  const r = scan([
+    { path: 'tokens.css', text: palette },
+    { path: 'app.css', text: css },
+  ]);
+  return r.hardcoded[0]?.nearest || null;
+}
+
+test('半透明の色に、不透明トークンを提案しない', () => {
+  assert.equal(nearestOf('.a { box-shadow: 0 1px 2px rgba(38, 49, 38, 0.18); }')?.name, '--ink-18');
+  assert.equal(nearestOf('.b { color: rgba(38, 49, 38, 0.5); }'), null);
+});
+
+test('完全に透明な色にはトークンを提案しない', () => {
+  assert.equal(nearestOf('.c { background-color: rgba(0, 0, 0, 0); }'), null);
+});
+
+test('見た目に別の色は提案しない（redmean 距離のしきい値）', () => {
+  assert.equal(nearestOf('.d { color: rgb(139, 92, 246); }'), null); // 紫 vs 緑系トークン
+  assert.equal(nearestOf('.e { color: #2563eb; }')?.name, '--brand'); // 完全一致は出す
+  assert.equal(nearestOf('.f { color: #2563ec; }')?.name, '--brand'); // ほぼ同色も出す
+});
+
+test('提案が無くてもベタ書きとしては数える（網羅率の指標は変えない）', () => {
+  const r = scan([
+    { path: 'tokens.css', text: palette },
+    { path: 'app.css', text: '.g { color: rgb(139, 92, 246); }' },
+  ]);
+  assert.equal(r.hardcoded.length, 1);
+  assert.equal(r.hardcoded[0].nearest, null);
+});
+
+// --- 破滅的バックトラッキング（実データ監査 2026-07 由来） ---
+// zuzumi-f/Discord-11 の base.css（90KB）でスキャンが返らなくなった。原因は色関数の
+// 正規表現 `(?:[^()]+|\(...\))*` で、閉じ括弧の無い rgba( があると指数時間になる。
+// CI に入れていたらジョブが永久に回り続ける種類の不具合。
+
+test('閉じ括弧の無い色関数があってもスキャンが返る（ReDoS ガード）', { timeout: 5000 }, () => {
+  const text = '.a { color: rgba(' + 'var(--x), '.repeat(400) + ' /* 閉じない */\n';
+  const r = scan([css(text)]);
+  assert.ok(Array.isArray(r.hardcoded));
+});
+
+test('壊れた括弧の直後の正しい色は取りこぼさない', { timeout: 5000 }, () => {
+  const text = '.a { color: rgba(0,0,0 ; }\n.b { color: #ff0000; }\n';
+  const r = scan([css(text)]);
+  assert.ok(r.hardcoded.some((h) => h.value === '#ff0000'));
+});
+
+test('入れ子1段の色関数は従来どおり丸ごと取れる', () => {
+  const r = scan([css('.a { color: rgb(var(--r) 0 0 / 0.5); background: hsl(210 40% 96%); }')]);
+  assert.equal(r.hardcodedCount, 1); // rgb(var(--r)…) はトークン参照なので債務ではない
+  assert.equal(r.hardcoded[0].kind, 'hsl');
 });
