@@ -19,6 +19,7 @@
   },
   "scripts": {
     "test": "node --test",
+    "lint": "npx --yes @biomejs/biome@2.5.8 lint src test",
     "demo": "node src/cli.mjs examples",
     "report": "node src/cli.mjs examples --report"
   },
