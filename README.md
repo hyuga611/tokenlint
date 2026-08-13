@@ -55,6 +55,8 @@ jobs:
 
 `--since`/`base` defaults to the PR base commit, so **"new in this PR"** works with zero extra config. Prefer `max-new` (net new) over `max` (total) unless you're at zero and want to stay there.
 
+`paths: src` is a promise that `src` exists. From 0.3.0, if it does not — renamed, moved, a typo — tokenlint **exits 2 instead of passing**. Before that it scanned nothing, counted zero, found zero ≤ `max`, and printed a green `✓ pass`; the gate went on reporting success for as long as the path stayed wrong. Exit 2 means *could not evaluate*, as distinct from 1 for *the gate failed*.
+
 ### As a README badge
 
 ```bash

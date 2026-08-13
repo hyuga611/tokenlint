@@ -1,6 +1,6 @@
 {
   "name": "@hyuga/tokenlint",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Count hardcoded colors, measure design-token coverage, and gate PRs — a zero-config, zero-dependency GitHub Action + CLI. Understands CSS custom properties and Tailwind arbitrary values.",
   "type": "module",
   "bin": {

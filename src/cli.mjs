@@ -61,24 +61,43 @@ function parseArgs(argv) {
   return o;
 }
 
+/**
+ * The files to scan, and the requested paths that are not there.
+ *
+ * `missing` exists because the walk used to swallow a failed `stat` and return
+ * nothing — so `tokenlint src --max 0` against a repo where `src/` had been
+ * renamed printed a green "✓ pass  0 hardcoded ≤ max 0" and exited 0. A gate that
+ * checked nothing announced itself as a gate that passed, which is worse than no
+ * gate: the CI badge stays green and nobody looks again.
+ *
+ * A stat that fails below the requested path is still ignored. That one is a
+ * symlink or a permission on a file nobody asked about by name, and stopping the
+ * run over it would be its own kind of noise.
+ */
 function collectFiles(paths) {
   const out = [];
+  const missing = [];
   const seen = new Set();
-  const walk = (p) => {
+  const walk = (p, requested) => {
     let st;
-    try { st = statSync(p); } catch { return; }
+    try {
+      st = statSync(p);
+    } catch {
+      if (requested) missing.push(p);
+      return;
+    }
     if (st.isDirectory()) {
       for (const d of readdirSync(p, { withFileTypes: true })) {
         if (d.isDirectory() && (IGNORE_DIRS.has(d.name) || d.name.startsWith('.'))) continue;
-        walk(join(p, d.name));
+        walk(join(p, d.name), false);
       }
     } else if (isSupported(p) && !seen.has(p)) {
       seen.add(p);
       out.push(p);
     }
   };
-  for (const p of paths) walk(p);
-  return out;
+  for (const p of paths) walk(p, true);
+  return { files: out, missing };
 }
 
 const toPosix = (p) => p.split(sep).join('/');
@@ -131,6 +150,14 @@ function printText(result, delta, o) {
   L.push('');
   L.push(`  ${bold('tokenlint', o.color)}  ${dim('· color token coverage', o.color)}`);
   L.push('');
+  // Say it outright rather than leaving it to be inferred from three zeros and an
+  // "n/a". A report of all-zeros reads as a clean result, and the one thing the
+  // reader most needs to know is that nothing was looked at.
+  if (result.fileCount === 0) {
+    L.push(`  ${bold('Nothing scanned', o.color)}   ${dim(`· no supported file under ${o.paths.map(toPosix).join(', ')}`, o.color)}`);
+    L.push(`  ${dim('The counts below are zero because there was nothing to count, not because it is clean.', o.color)}`);
+    L.push('');
+  }
   L.push(`  Coverage    ${bold(covText, o.color)}   ${dim(`· tokenized ${result.tokenizedCount} / hardcoded ${result.hardcodedCount}`, o.color)}`);
   L.push(`  Hardcoded   ${result.hardcodedCount} colors across ${nFiles} file${nFiles === 1 ? '' : 's'}`);
   L.push(`  Palette     ${result.palette.length} tokens defined`);
@@ -150,10 +177,20 @@ function printText(result, delta, o) {
   }
   L.push('');
   const gates = [];
-  if (o.max != null) gates.push([result.hardcodedCount <= o.max, `${result.hardcodedCount} hardcoded ${result.hardcodedCount <= o.max ? '≤' : '>'} max ${o.max}`]);
-  if (o.maxNew != null && delta) gates.push([delta.added <= o.maxNew, `${delta.added} new ${delta.added <= o.maxNew ? '≤' : '>'} max-new ${o.maxNew}`]);
-  for (const [ok, msg] of gates) L.push(`  ${ok ? green('✓ pass', o.color) : red('✗ fail', o.color)}  ${msg}`);
-  if (gates.length) L.push('');
+  // A gate over nothing is not a gate that passed. Printing "✓ pass" here and then
+  // exiting non-zero would put a green tick in the log of a run that failed, and the
+  // tick is the part people read.
+  if (result.fileCount === 0) {
+    if (o.max != null || o.maxNew != null) {
+      L.push(`  ${red('✗ not evaluated', o.color)}  the gate had no file to measure`);
+      L.push('');
+    }
+  } else {
+    if (o.max != null) gates.push([result.hardcodedCount <= o.max, `${result.hardcodedCount} hardcoded ${result.hardcodedCount <= o.max ? '≤' : '>'} max ${o.max}`]);
+    if (o.maxNew != null && delta) gates.push([delta.added <= o.maxNew, `${delta.added} new ${delta.added <= o.maxNew ? '≤' : '>'} max-new ${o.maxNew}`]);
+    for (const [ok, msg] of gates) L.push(`  ${ok ? green('✓ pass', o.color) : red('✗ fail', o.color)}  ${msg}`);
+    if (gates.length) L.push('');
+  }
   process.stdout.write(L.join('\n') + '\n');
 }
 
@@ -188,7 +225,12 @@ function main() {
   if (o.version) { process.stdout.write(version() + '\n'); return 0; }
   if (o.format !== 'text' && o.format !== 'json') { console.error(`tokenlint: unknown format ${o.format}`); return 2; }
 
-  const files = collectFiles(o.paths);
+  const { files, missing } = collectFiles(o.paths);
+  if (missing.length) {
+    for (const p of missing) console.error(`tokenlint: ${toPosix(p)} does not exist`);
+    console.error('tokenlint: nothing was scanned, so nothing can be reported as passing');
+    return 2;
+  }
   const inputs = files.flatMap((path) => {
     try { return [{ path: toPosix(relative('.', path)), text: readFileSync(path, 'utf8') }]; }
     catch (e) { console.error(`tokenlint: skipped ${toPosix(relative('.', path))} (${e.code || e.message})`); return []; }
@@ -224,6 +266,19 @@ function main() {
   // ran — don't report success. Exit 2 distinguishes "couldn't evaluate" from 1 "gate failed".
   if (o.maxNew != null && !delta) {
     if (!error) console.error('tokenlint: --max-new set but no base ref to diff against (pass --since or run on pull_request) — failing closed');
+    return 2;
+  }
+
+  // Same reasoning, one step earlier. Zero files means every count is zero, which
+  // satisfies any --max you could name — so the gate reports a pass it never
+  // evaluated. The paths all exist by this point, so this is a scan scope that
+  // matches no supported file: a directory of images, or `--max` pointed at a
+  // folder whose stylesheets moved.
+  if (result.fileCount === 0 && (o.max != null || o.maxNew != null)) {
+    console.error(
+      `tokenlint: no supported file under ${o.paths.map(toPosix).join(', ')} — the gate had nothing to ` +
+        'measure, so it is not reported as passing',
+    );
     return 2;
   }
 
