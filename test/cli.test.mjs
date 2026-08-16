@@ -17,9 +17,14 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join, resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const CLI = resolve(import.meta.dirname, '..', 'src', 'cli.mjs');
+// import.meta.dirname は Node 20.11 で入ったもので、18 では undefined。
+// package.json は engines ">=18" と宣言していて CI も 18.x を回すので、
+// この1行のせいでテストファイルごと ERR_INVALID_ARG_TYPE で落ちていた。
+const HERE = dirname(fileURLToPath(import.meta.url));
+const CLI = resolve(HERE, '..', 'src', 'cli.mjs');
 
 function run(args, cwd) {
   try {
