@@ -241,3 +241,54 @@ test('入れ子1段の色関数は従来どおり丸ごと取れる', () => {
   assert.equal(r.hardcodedCount, 1); // rgb(var(--r)…) はトークン参照なので債務ではない
   assert.equal(r.hardcoded[0].kind, 'hsl');
 });
+
+// --- 誤検知（敵対的入力監査 2026-08 由来） ---
+// 別モデル（GPT-5.4）に「この検出器を壊す入力」を作らせ、実際に走らせて再現したもの。
+// 共通の原因は「markup 側の走査が生テキストをそのまま見ていた」こと。CSS 側は maskUrls/
+// maskVars を通していたのに、Tailwind 走査だけ素通しだった。
+// ドキュメントサイトやスタイルガイドを掛けると、説明用のコード例が全部債務に数えられる。
+
+const html = (text) => ({ path: 'x.html', text });
+
+test('Tailwind の url() フラグメントを色と誤認しない', () => {
+  const r = scan([jsx('export default () => <div className="bg-[url(/icons.svg#abcdef)]" />;')]);
+  assert.equal(r.hardcodedCount, 0);
+});
+
+test('<pre><code> 内の Tailwind 例は債務に数えない', () => {
+  const r = scan([html('<pre><code>class="text-[#3b82f6]"</code></pre>')]);
+  assert.equal(r.hardcodedCount, 0);
+});
+
+test('JSX のコメントアウトされた class は債務に数えない', () => {
+  const r = scan([jsx('export default () => <div>{/* className="border-[#ABCD]" */}</div>;')]);
+  assert.equal(r.hardcodedCount, 0);
+});
+
+test('HTML コメント内の class は債務に数えない（非ASCII混在）', () => {
+  const r = scan([html('<!-- 日本語メモ: class="text-[#abcdef]" は説明用 -->\n<p>通常の文章</p>')]);
+  assert.equal(r.hardcodedCount, 0);
+});
+
+test('CSS 値の文字列リテラル内の hex は色ではない', () => {
+  const r = scan([css('.note { background: "ticket #abcdef"; }')]);
+  assert.equal(r.hardcodedCount, 0);
+});
+
+// マスクのやり過ぎ＝見逃しへの転落を防ぐ。上の5件と対で維持すること。
+
+test('<code> の開始タグに付いた class は実際に効くので数える', () => {
+  const r = scan([html('<code class="text-[#3b82f6]">sample</code>')]);
+  assert.equal(r.hardcodedCount, 1);
+});
+
+test('同じ行に URL があっても Tailwind の色は取りこぼさない', () => {
+  const r = scan([jsx('<a href="https://example.com/#anchor" className="text-[#3b82f6]">x</a>')]);
+  assert.equal(r.hardcodedCount, 1);
+  assert.equal(r.hardcoded[0].value, '#3b82f6');
+});
+
+test('通常の Tailwind 任意値は従来どおり検出する', () => {
+  const r = scan([jsx('<div className="text-[#3b82f6] bg-[rgb(0,0,0)]" />')]);
+  assert.equal(r.hardcodedCount, 2);
+});

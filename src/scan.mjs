@@ -91,6 +91,23 @@ function maskVars(value) {
 function maskUrls(value) {
   return value.replace(/url\(\s*[^)]*\)/gi, (s) => ' '.repeat(s.length));
 }
+// Same-length blank that keeps newlines, so loc(originalText) still maps after masking.
+const blank = (s) => s.replace(/[^\n]/g, ' ');
+// Quoted strings in a declaration value are content, not paint (background: "ticket #abcdef").
+function maskStrings(value) {
+  return value.replace(/(["'])(?:\\.|(?!\1)[^\\])*\1/g, blank);
+}
+// Markup comments and code samples are documentation, not applied styling — mask before the
+// Tailwind scan. 敵対的入力監査（2026-08）で、<pre><code> 内の Tailwind 例・{/* … */} の
+// コメントアウト・<!-- --> の説明文が、そのままハードコード色として数えられていた。
+// 行コメント（//）は URL の https:// と区別できず、URL を含む行の class を丸ごと隠して
+// 見逃しに転ぶため対象にしない。開始タグは残す（<code class="text-[#fff]"> は実際に効くため）。
+function maskDocRegions(text) {
+  return text
+    .replace(/<!--[\s\S]*?-->/g, blank)
+    .replace(/(<(pre|code)\b[^>]*>)([\s\S]*?)(<\/\2>)/gi, (_m, open, _t, body, close) => open + blank(body) + close)
+    .replace(/\/\*[\s\S]*?\*\//g, blank);
+}
 
 // Project a markup file to a same-length "CSS view": keep <style>…</style> bodies and inline
 // style="…" values (quotes -> { }), blank everything else. Newlines kept so loc(originalText) maps.
@@ -171,7 +188,7 @@ function scanCssUsages(path, text, loc, ctx) {
     if (!COLOR_PROPS.has(prop)) continue;
     const colon = m[0].indexOf(':');
     const valueStart = m.index + m[0].indexOf(value, colon + 1);
-    const masked = maskUrls(maskVars(value)); // don't count token fallbacks / url() refs as hardcoded
+    const masked = maskStrings(maskUrls(maskVars(value))); // token fallbacks / url() refs / string content are not hardcoded
     for (const re of [HEX, FUNC]) {
       re.lastIndex = 0;
       let lm;
@@ -186,13 +203,16 @@ function scanCssUsages(path, text, loc, ctx) {
 }
 
 function scanMarkup(path, text, loc, ctx) {
+  const view = maskDocRegions(text); // same length — m.index still maps to the original text
   for (const re of [TW_ARB, TW_PROP]) {
     re.lastIndex = 0;
     let m;
-    while ((m = re.exec(text))) {
-      const cm = COLOR_LITERAL.exec(m[0]);
+    while ((m = re.exec(view))) {
+      // bg-[url(/icons.svg#abcdef)] は SVG フラグメント参照であって色ではない。
+      // CSS 側（scanCssUsages）は maskUrls していたが、こちらが抜けていた。
+      const cm = COLOR_LITERAL.exec(maskUrls(m[0]));
       if (!cm) continue;
-      pushHardcoded(ctx, path, loc, m.index + m[0].indexOf(cm[0]), cm[0], 'tw-arbitrary', '(tailwind)');
+      pushHardcoded(ctx, path, loc, m.index + cm.index, cm[0], 'tw-arbitrary', '(tailwind)');
     }
   }
 }
