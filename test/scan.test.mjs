@@ -242,6 +242,61 @@ test('入れ子1段の色関数は従来どおり丸ごと取れる', () => {
   assert.equal(r.hardcoded[0].kind, 'hsl');
 });
 
+// --- 最近の CSS 色関数（2026-08） ---
+// 色関数の正規表現が rgb/hsl だけだったので、oklch() を1件も数えていなかった。
+// Tailwind v4 の既定色空間が oklch なので、モダンな構成ほど債務が見えなくなる。
+// 実測：oklch で書いたプロジェクトで coverage 66.7%（実際は 22.2%）、
+// トークン定義も oklch だと parseColor が null を返してパレットが 0 件になっていた。
+
+test('oklch / oklab / hwb / lab / color() をベタ書きとして数える', () => {
+  const r = scan([css([
+    '.a { color: oklch(0.7 0.15 250); }',
+    '.b { background: oklab(0.5 0.1 -0.1); }',
+    '.c { border-color: hwb(200 10% 20%); }',
+    '.d { fill: lab(50% 40 30); }',
+    '.e { color: color(display-p3 1 0 0); }',
+  ].join('\n'))]);
+  assert.equal(r.hardcodedCount, 5);
+  assert.deepEqual(r.hardcoded.map((h) => h.kind), ['oklch', 'oklab', 'hwb', 'lab', 'color']);
+});
+
+test('oklch で定義したトークンをパレットとして読める', () => {
+  const r = scan([css(':root { --color-brand: oklch(0.628 0.2577 29.23); } .a { color: #ff0000; }')]);
+  assert.equal(r.palette.length, 1);
+  assert.equal(r.hardcoded[0].nearest.name, '--color-brand'); // oklch の赤 = #ff0000
+});
+
+test('oklch(var(--x) …) はトークン参照なので債務ではない', () => {
+  const r = scan([css('.a { color: oklch(var(--l) 0.1 200); }')]);
+  assert.equal(r.hardcodedCount, 0);
+});
+
+test('Tailwind 任意値の oklch も拾う', () => {
+  const r = scan([jsx('<div className="text-[oklch(0.7_0.15_250)]" />')]);
+  assert.equal(r.hardcodedCount, 1);
+});
+
+test('ハイフン区切りの末尾一致で color( を拾わない', () => {
+  // \b はハイフンの直後で成立するので、後読みが無いと foo-color(...) が色になる。
+  const r = scan([css('.a { background: foo-color(1 2 3); }')]);
+  assert.equal(r.hardcodedCount, 0);
+});
+
+test('oklch / oklab / hwb を sRGB に変換できる', () => {
+  assert.deepEqual(parseColor('oklch(0.628 0.2577 29.23)'), { r: 255, g: 0, b: 0, a: 1 });
+  assert.deepEqual(parseColor('oklch(1 0 0)'), { r: 255, g: 255, b: 255, a: 1 });
+  assert.deepEqual(parseColor('hwb(0 50% 0%)'), { r: 255, g: 128, b: 128, a: 1 });
+  assert.deepEqual(parseColor('hwb(0 30% 70%)'), { r: 77, g: 77, b: 77, a: 1 }); // w+b>=1 は無彩色
+});
+
+test('相対色構文と未対応の色空間は、数えるが提案はしない', () => {
+  assert.equal(parseColor('oklch(from var(--x) l c h)'), null);
+  assert.equal(parseColor('lab(50% 40 30)'), null); // 検出はする・変換はまだ
+  const r = scan([css('.a { color: lab(50% 40 30); }')]);
+  assert.equal(r.hardcodedCount, 1);
+  assert.equal(r.hardcoded[0].nearest, null);
+});
+
 // --- 誤検知（敵対的入力監査 2026-08 由来） ---
 // 別モデル（GPT-5.4）に「この検出器を壊す入力」を作らせ、実際に走らせて再現したもの。
 // 共通の原因は「markup 側の走査が生テキストをそのまま見ていた」こと。CSS 側は maskUrls/

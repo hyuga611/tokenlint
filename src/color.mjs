@@ -39,7 +39,35 @@ function alphaOf(str) {
   return Number.isNaN(v) ? 1 : clamp(v, 0, 1);
 }
 
-/** Parse a CSS color literal (#hex, rgb()/rgba(), hsl()/hsla()) to {r,g,b,a}, or null. */
+// 0..1 の線形値を sRGB の 0..255 へ。域外は端に寄せる（負数を Math.pow に渡すと NaN）。
+function encodeSrgb(c) {
+  const x = clamp(c, 0, 1);
+  const v = x <= 0.0031308 ? 12.92 * x : 1.055 * x ** (1 / 2.4) - 0.055;
+  return clamp(Math.round(v * 255), 0, 255);
+}
+
+// OKLab → sRGB。係数は Björn Ottosson の定義（bottosson.github.io/posts/oklab/）。
+// Tailwind v4 の既定色空間が oklch なので、これが無いと「近いトークン」を一切提案できない。
+function oklabToRgb(L, a, b) {
+  const l_ = L + 0.3963377774 * a + 0.2158037573 * b;
+  const m_ = L - 0.1055613458 * a - 0.0638541728 * b;
+  const s_ = L - 0.0894841775 * a - 1.291485548 * b;
+  const l = l_ ** 3, m = m_ ** 3, s = s_ ** 3;
+  return {
+    r: encodeSrgb(4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s),
+    g: encodeSrgb(-1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s),
+    b: encodeSrgb(-0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s),
+  };
+}
+
+// oklch/oklab の L は 0..1（`62%` 表記も可）、C と a/b は 0..0.4 相当（100% = 0.4）。
+function okNum(str, pctScale) {
+  const v = parseFloat(str);
+  if (Number.isNaN(v)) return NaN;
+  return String(str).trim().endsWith('%') ? (v / 100) * pctScale : v;
+}
+
+/** Parse a CSS color literal (#hex, rgb()/rgba(), hsl()/hsla(), oklch()/oklab()/hwb()) to {r,g,b,a}, or null. */
 export function parseColor(input) {
   if (!input) return null;
   const s = String(input).trim().toLowerCase();
@@ -70,6 +98,32 @@ export function parseColor(input) {
     const l = parseFloat(p[2]) / 100;
     if ([h, sat, l].some((v) => Number.isNaN(v))) return null;
     return { ...hslToRgb(h, sat, l), a: alphaOf(p[3]) };
+  }
+  if ((m = /^oklch\(([^)]+)\)$/.exec(s))) {
+    const p = m[1].split(/[,\s/]+/).filter(Boolean);
+    if (p.length < 3) return null;
+    const L = okNum(p[0], 1), C = okNum(p[1], 0.4), H = hueToDeg(p[2]);
+    if ([L, C, H].some(Number.isNaN)) return null; // `none` / relative color syntax
+    const rad = (H * Math.PI) / 180;
+    return { ...oklabToRgb(L, C * Math.cos(rad), C * Math.sin(rad)), a: alphaOf(p[3]) };
+  }
+  if ((m = /^oklab\(([^)]+)\)$/.exec(s))) {
+    const p = m[1].split(/[,\s/]+/).filter(Boolean);
+    if (p.length < 3) return null;
+    const L = okNum(p[0], 1), a = okNum(p[1], 0.4), b = okNum(p[2], 0.4);
+    if ([L, a, b].some(Number.isNaN)) return null;
+    return { ...oklabToRgb(L, a, b), a: alphaOf(p[3]) };
+  }
+  if ((m = /^hwb\(([^)]+)\)$/.exec(s))) {
+    const p = m[1].split(/[,\s/]+/).filter(Boolean);
+    if (p.length < 3) return null;
+    const h = hueToDeg(p[0]), w = parseFloat(p[1]) / 100, bl = parseFloat(p[2]) / 100;
+    if ([h, w, bl].some(Number.isNaN)) return null;
+    const alpha = alphaOf(p[3]);
+    if (w + bl >= 1) { const g = clamp(Math.round((w / (w + bl)) * 255), 0, 255); return { r: g, g, b: g, a: alpha }; }
+    const base = hslToRgb(h, 1, 0.5);
+    const mix = (c) => clamp(Math.round(c * (1 - w - bl) + w * 255), 0, 255);
+    return { r: mix(base.r), g: mix(base.g), b: mix(base.b), a: alpha };
   }
   return null;
 }

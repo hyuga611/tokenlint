@@ -26,19 +26,36 @@ const COLOR_PROPS = new Set([
 ]);
 
 const HEX = /#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{4}|[0-9a-fA-F]{3})\b/g;
+// 色関数の名前。ここ1箇所から下の4つの正規表現を組む。以前は各所に `rgba?|hsla?` を
+// 直書きしていて、片方だけ直し忘れる形の欠陥を実際に出している（0.3.1 の maskUrls）。
+//
+// rgb/hsl しか見ていなかったので、Tailwind v4 が既定で吐く oklch() を1件も数えていなかった。
+// 見逃しは誤検知より質が悪い：債務が0件に見え、網羅率は実態より良く出て、
+// 「トークン化が進んでいる」と読める数字だけが残る。
+//
+// 後読みは `border-color(...)` のような `-` 区切りの末尾一致で `color(` を拾わないため
+// （\b はハイフンの直後で成立してしまう）。
+const FN = '(?<![-\\w])(?:rgba?|hsla?|oklch|oklab|lch|lab|hwb|color)';
+const FN_CALL = `${FN}\\((?:[^()]|\\([^()]*\\)){0,200}\\)`;
 // Nesting-aware (one level) so hsl(var(--x)) / rgb(a / .2) capture cleanly instead of truncating.
 // 分岐は「括弧以外の1文字」か「1段だけの括弧組」で重ならず、繰り返しにも上限を置く。
 // `(?:[^()]+|\(...\))*` の形だと、閉じ括弧の無い rgba( があった瞬間に指数爆発する
 // （実データ監査 2026-07: 公開CSS 90KB でスキャンが返らなくなった）。色リテラルは短いので上限で足りる。
-const FUNC = /\b(?:rgba?|hsla?)\((?:[^()]|\([^()]*\)){0,200}\)/gi;
+const FUNC = new RegExp(FN_CALL, 'gi');
 const VAR = /var\(\s*(--[A-Za-z0-9_-]+)/g;
 // Tailwind arbitrary color: color may appear anywhere in the brackets (shadow-[0_2px_#000]).
 // Lookahead + single greedy [^\]]* keeps it linear (no catastrophic backtracking).
-const TW_ARB = /\b(?:text|bg|border|ring|ring-offset|fill|stroke|from|via|to|decoration|outline|shadow|drop-shadow|accent|caret|divide|placeholder)-\[(?=[^\]]*(?:#[0-9a-fA-F]{3,8}|(?:rgba?|hsla?)\([^)\]]*\)))[^\]]*\]/gi;
+const TW_ARB = new RegExp(
+  `\\b(?:text|bg|border|ring|ring-offset|fill|stroke|from|via|to|decoration|outline|shadow|drop-shadow|accent|caret|divide|placeholder)-\\[(?=[^\\]]*(?:#[0-9a-fA-F]{3,8}|${FN}\\([^)\\]]*\\)))[^\\]]*\\]`,
+  'gi',
+);
 // Arbitrary property form: [color:#fff], [background-color:rgb(...)] — same lookahead shape.
-const TW_PROP = /\[\s*(?:color|background|background-color|border-color|fill|stroke|outline-color|text-decoration-color)\s*:\s*(?=[^\]]*(?:#[0-9a-fA-F]{3,8}|(?:rgba?|hsla?)\([^)\]]*\)))[^\]]*\]/gi;
+const TW_PROP = new RegExp(
+  `\\[\\s*(?:color|background|background-color|border-color|fill|stroke|outline-color|text-decoration-color)\\s*:\\s*(?=[^\\]]*(?:#[0-9a-fA-F]{3,8}|${FN}\\([^)\\]]*\\)))[^\\]]*\\]`,
+  'gi',
+);
 // Extract the actual color literal from a matched Tailwind utility (non-global; exec from start).
-const COLOR_LITERAL = /#[0-9a-fA-F]{3,8}|(?:rgba?|hsla?)\((?:[^()]|\([^()]*\)){0,200}\)/i;
+const COLOR_LITERAL = new RegExp(`#[0-9a-fA-F]{3,8}|${FN_CALL}`, 'i');
 
 const CSS_EXT = new Set(['css', 'scss', 'sass', 'less']);
 const MARKUP_EXT = new Set(['html', 'htm', 'jsx', 'tsx', 'vue', 'svelte', 'astro', 'mdx']);
@@ -65,7 +82,10 @@ function makeLoc(text) {
 
 function kindOf(raw) {
   if (raw[0] === '#') return 'hex';
-  return /^hsl/i.test(raw) ? 'hsl' : 'rgb';
+  const fn = (/^[a-z]+/i.exec(raw)?.[0] ?? '').toLowerCase();
+  if (fn === 'rgb' || fn === 'rgba') return 'rgb'; // 既存の JSON 出力の値は変えない
+  if (fn === 'hsl' || fn === 'hsla') return 'hsl';
+  return fn; // oklch / oklab / lch / lab / hwb / color
 }
 
 // Same-length space mask of every var(...) interior — so token fallbacks (var(--x, #fff))
