@@ -347,3 +347,35 @@ test('通常の Tailwind 任意値は従来どおり検出する', () => {
   const r = scan([jsx('<div className="text-[#3b82f6] bg-[rgb(0,0,0)]" />')]);
   assert.equal(r.hardcodedCount, 2);
 });
+
+// React で色を直書きする一番普通の書き方が style={{ ... }} で、引用符つきの HTML 属性しか
+// 見ていなかったため丸ごと素通りしていた。カバレッジ率は tokenized/(tokenized+hardcoded)
+// なので、見逃しは**この工具の看板の数字を実態より良く見せる**方向に効く。
+test('JSX の style={{ ... }} の直書き色を拾う', () => {
+  const r = scan([jsx('export const A = () => <div style={{ color: "#ff0000" }}>x</div>;')]);
+  assert.equal(r.hardcodedCount, 1);
+  assert.equal(r.hardcoded[0].value, '#ff0000');
+  assert.equal(r.hardcoded[0].line, 1);
+});
+
+test('JSX の camelCase プロパティも色プロパティとして扱う', () => {
+  const r = scan([jsx('const A = () => <div style={{ backgroundColor: "#00ff00" }}>x</div>;')]);
+  assert.equal(r.hardcodedCount, 1);
+  assert.equal(r.hardcoded[0].value, '#00ff00');
+});
+
+test('JSX の style={{ ... }} 内の var() は直書きではない', () => {
+  const r = scan([jsx('const A = () => <div style={{ color: "var(--color-text)" }}>x</div>;')]);
+  assert.equal(r.hardcodedCount, 0);
+  assert.equal(r.tokenizedCount, 1);
+});
+
+test('1つの style={{ ... }} に複数の色があっても全部拾う', () => {
+  const r = scan([jsx('const A = () => <div style={{ color: "#ff0000", backgroundColor: "#00ff00" }}>x</div>;')]);
+  assert.equal(r.hardcodedCount, 2);
+});
+
+test('CSS の kebab-case プロパティは従来どおり（正規化で壊さない）', () => {
+  const r = scan([css('.a { background-color: #ff0000; }')]);
+  assert.equal(r.hardcodedCount, 1);
+});

@@ -154,6 +154,22 @@ function cssViewOfMarkup(text) {
     }
     out[q1 + 1 + inner.length] = '}';
   }
+  // JSX の style={{ ... }}。React で色を直書きする一番普通の書き方がこれで、
+  // 引用符つきの HTML 属性しか見ていなかったため**丸ごと素通りしていた**。
+  // 見逃しはカバレッジ率そのものを実態より高く出すので、この工具の看板の数字が狂う。
+  // JS オブジェクト構文を CSS 宣言列に写す：引用符は外し（"#f00" の中身を残すため）、
+  // カンマは ; にする。オフセットと改行は保つので loc() はそのまま使える。
+  const JSXSTYLE = /\bstyle\s*=\s*\{\{([\s\S]*?)\}\}/g;
+  while ((m = JSXSTYLE.exec(text))) {
+    const inner = m[1];
+    const start = m.index + m[0].indexOf('{{') + 2;
+    out[start - 1] = '{';
+    for (let i = 0; i < inner.length; i++) {
+      const c = text[start + i];
+      out[start + i] = c === '\n' ? '\n' : c === '"' || c === "'" ? ' ' : c === ',' ? ';' : c;
+    }
+    out[start + inner.length] = '}';
+  }
   return out.join('');
 }
 
@@ -202,7 +218,9 @@ function scanCssUsages(path, text, loc, ctx) {
   const DECL = /(?:^|[;{}])\s*(-{0,2}[A-Za-z][A-Za-z0-9-]*)\s*:\s*([^;{}]*)/g;
   let m;
   while ((m = DECL.exec(text))) {
-    const prop = m[1].toLowerCase();
+    // JSX の style={{ backgroundColor: ... }} は camelCase で来る。CSS 側に camelCase の
+    // プロパティは無いので、kebab に正規化しても CSS ファイルの解釈は変わらない。
+    const prop = m[1].replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase();
     const value = m[2];
     if (!value || prop.startsWith('--')) continue; // token defs handled in pass 1
     if (!COLOR_PROPS.has(prop)) continue;
